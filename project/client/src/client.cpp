@@ -81,6 +81,7 @@ namespace client
 
         initConnectionThreads();
 
+        return true;
     }
 
 }
