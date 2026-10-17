@@ -8,8 +8,12 @@
 
 int main()
 {
-    std::string  frase= "Esse print vem do servidor";
-    server::print(frase);
+
+    if (server::init_server()) {
+        std::cout << "\nAll clients connected";
+    }
+
+
 
     return 0;
 }
