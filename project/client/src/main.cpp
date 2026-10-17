@@ -3,9 +3,7 @@
 
 int main()
 {
-    std::string frase = "print do cliente";
-
-    client::print(frase);
+    client::init_client();
 
     return 0;
 }
