@@ -154,4 +154,117 @@ namespace client
         return true;
     }
 
+
+    void* producer_client_event_pool(void *args)
+    {
+        Event event;
+
+        while (1)
+        {
+            printf("\nDigite a mensagem para o servidor: \n");
+
+            if (fgets(event.buffer,sizeof(event.buffer),stdin) == NULL)
+            {
+                perror("\nERRO AO LER ENTRADA DE DADOS NO PRODUCER\n");
+                pthread_exit(NULL);
+            }
+
+            event.buffer[strcspn(event.buffer,"\n")] = '\0';
+
+            pthread_mutex_lock(&event_lock);
+
+            while (eventPoolSize == EVENT_POOL_BUFFER_SIZE)
+            {
+                pthread_cond_wait(&hasSpace,&event_lock);
+            }
+
+            eventPool[writeIndex]=event;
+            writeIndex = (writeIndex +1) % EVENT_POOL_BUFFER_SIZE; //circular
+            eventPoolSize++;
+
+            pthread_mutex_unlock(&event_lock);
+
+            pthread_cond_signal(&hasEvent);
+
+
+        }
+
+        pthread_exit(NULL);
+    }
+
+    void* consumer_client_event_pool(void *args)
+    {
+
+        while (1)
+        {
+
+            pthread_mutex_lock(&event_lock);
+
+            while (eventPoolSize == 0)
+            {
+                pthread_cond_wait(&hasEvent,&event_lock);
+
+            }
+
+            Event event = eventPool[readIndex];
+            readIndex = (readIndex+1) %EVENT_POOL_BUFFER_SIZE;
+            eventPoolSize--;
+
+            pthread_mutex_unlock(&event_lock);
+            pthread_cond_signal(&hasSpace);
+
+            if (socketTCP == -1)
+            {
+                perror("\nSOCKET INDISPONIVEL, NAO É POSSIVEL ENVIAR DADOS AO SERVIDOR\n");
+                continue;
+            }
+
+            size_t total = strlen(event.buffer) + 1;
+            size_t sent = 0;
+
+            while (sent < total) {
+                ssize_t result = send(
+                    socketTCP,
+                    event.buffer + sent,
+                    total - sent,
+                    MSG_NOSIGNAL
+                );
+
+                if (result == -1) {
+                    if (errno == EINTR) continue;
+
+                    perror("ERRO AO ENVIAR EVENTO");
+                    return NULL;
+                }
+
+                if (result == 0) {
+                    fprintf(stderr, "ENVIO SEM PROGRESSO\n");
+                    return NULL;
+                }
+
+                sent += (size_t)result;
+            }
+
+        }
+        pthread_exit(NULL);
+    }
+    void init_event_pool() {
+        int error;
+
+        error = pthread_create(&eventConsumerThread, NULL, consumer_client_event_pool, NULL);
+        if (error != 0) {
+            fprintf(stderr, "ERRO AO CRIAR CONSUMIDOR: %s\n", strerror(error));
+            exit(EXIT_FAILURE);
+        }
+
+        error = pthread_create(&eventProducerThread, NULL, producer_client_event_pool, NULL);
+        if (error != 0) {
+            fprintf(stderr, "ERRO AO CRIAR PRODUTOR: %s\n", strerror(error));
+            exit(EXIT_FAILURE);
+        }
+
+        pthread_join(eventProducerThread, NULL);
+        pthread_join(eventConsumerThread, NULL);
+    }
+
 }

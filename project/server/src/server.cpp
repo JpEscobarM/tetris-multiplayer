@@ -4,8 +4,6 @@
 namespace server {
 
 
-
-
     bool configure_tcp_socket() {
 
         int ret= -1;
@@ -121,16 +119,44 @@ namespace server {
                 continue;
             }
 
+            SocketParam_t *param =(SocketParam_t *)malloc(sizeof(SocketParam_t));
+
+            if (param == NULL) {
+                perror("ERRO AO ALOCAR PARAMETRO");
+                close(clientSocket);
+                continue;
+            }
+
+            param->socket = clientSocket;
+
             socketCients[count] = clientSocket;
-            count++;
+
+            int err_t = pthread_create(&handleClientsThreads[count],NULL,handleClients,param);
 
             pthread_mutex_lock(&lock);
-            connectedClients++;
+
+            if (err_t == 0) {
+                connectedClients++;
+            } else {
+                socketCients[count] = -1;
+            }
+
             pthread_mutex_unlock(&lock);
+
+            if (err_t != 0) {
+                fprintf(stderr, "ERRO AO CRIAR THREAD: %s\n",strerror(err_t));
+
+                free(param);
+                close(clientSocket);
+                continue;
+            }
+
+            count++;
         }
 
         return NULL;
     }
+
 
     bool initConnectionThreads() {
 
@@ -138,13 +164,67 @@ namespace server {
         pthread_create(&connectionThreads[0],NULL,connection_announcement,NULL);// primeira thread responsavel por anunciar enquanto existirem conexoes vazias
         pthread_create(&connectionThreads[1],NULL,accept_connections,NULL);
 
+
         pthread_join(connectionThreads[0], NULL);
         pthread_join(connectionThreads[1], NULL);
+
+        // Espera cada thread de atendimento terminar.
+        for (int i = 0; i < CONNECTION_LIMIT; i++) {
+            pthread_join(handleClientsThreads[i], NULL);
+        }
+
         return true;
     }
 
+
+
     void* handleClients(void *args) {
-        //implementar
+        SocketParam_t *param = (SocketParam_t *)args;
+
+        int clientSocket = param->socket;
+
+        free(param);
+
+        char buffer[1024];
+
+        while (true) {
+            ssize_t received = recv(clientSocket, buffer, sizeof(buffer), 0);
+
+            if (received > 0) {
+                buffer[received] = '\0';
+                // PROCESSAR OS DADOS VINDOS DO BUFFER AQUI
+                printf("\nMENSAGEM DO CLIENTE: %s\n",buffer); //debug por enquanto
+
+            } else if (received == 0) {
+                printf("\nCliente encerrou a conexao\n");
+                break;
+            } else {
+                if (errno == EINTR) {
+                    continue; // Interrompido por um sinal; tenta novamente.
+                }
+
+                perror("\nERRO AO RECEBER DADOS DO CLIENTE");
+                break;
+            }
+        }
+
+        pthread_mutex_lock(&lock);
+
+        for (int i = 0; i < CONNECTION_LIMIT; i++) {
+            if (socketCients[i] == clientSocket) {
+                socketCients[i] = -1;
+                break;
+            }
+        }
+
+        connectedClients--;
+
+        pthread_mutex_unlock(&lock);
+
+        close(clientSocket);
+        return NULL;
     }
+
+
 
 }

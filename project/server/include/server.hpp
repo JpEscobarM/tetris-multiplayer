@@ -7,10 +7,19 @@
 #include <strings.h>
 #include <unistd.h>
 #include <iostream>
+#include <cstring>
 #include <pthread.h>
 
 
 namespace server {
+
+
+    typedef struct
+    {
+        int socket;
+
+    }SocketParam_t; /// < Tipo usado para passar um socket como parametro para uma funcao handleClient responsavel por receber as informacoes do cliente
+
 
     inline constexpr unsigned short BROADCAST_PORT = 5001;
     inline constexpr unsigned short TCP_PORT = 5002;
@@ -28,10 +37,8 @@ namespace server {
     inline  sockaddr_in enderecoServidor; ///< usado para aceitar conexoes TCP
     inline sockaddr_in enderecoBroadcast; ///< usado para fazer o anuncio do IP BROADCAST
 
-
-
-   inline pthread_t connectionThreads[2];
-
+   inline pthread_t connectionThreads[2]; /// < threads responsáveis por fazer o anuncio UDP e aceitar conexoes TCP
+   inline pthread_t handleClientsThreads[2]; /// < recebem as informações do socket
 
 
     inline pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
@@ -68,9 +75,9 @@ namespace server {
     bool initConnectionThreads();
 
     /**
-     * @brief Função que verifica se os clientes estão conectados a partir do recv();
+     * @brief Função que recebe os dados a partir do socketTCP passado em args
      *
-     * @param args
+     * @param args parametro com o socket a ser verificado
      * @return pthread_exit
      */
     void* handleClients(void *args);

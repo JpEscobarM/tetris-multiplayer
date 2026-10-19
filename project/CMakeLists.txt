@@ -18,3 +18,8 @@ add_executable(tetris_server
 target_include_directories( tetris_server PRIVATE server/include)
 
 target_include_directories(tetris_client PRIVATE client/include)
+
+#ADD PTHREAD FROM LINUX
+find_package(Threads REQUIRED)
+target_link_libraries(tetris_client Threads::Threads)
+target_link_libraries(tetris_server Threads::Threads)
