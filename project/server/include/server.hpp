@@ -14,7 +14,7 @@ namespace server {
 
     inline constexpr unsigned short BROADCAST_PORT = 5001;
     inline constexpr unsigned short TCP_PORT = 5002;
-    inline constexpr unsigned short TIME_TO_CHECK = 5;
+    inline constexpr unsigned short TIME_TO_CHECK = 3;
 
     inline int CONNECTION_LIMIT = 2; /// < limite de conexoes simultaneas
 
@@ -66,5 +66,13 @@ namespace server {
     /**@brief Inicia thread de envio de conexao na rede e thread que aceita conexao dos clientes
      */
     bool initConnectionThreads();
+
+    /**
+     * @brief Função que verifica se os clientes estão conectados a partir do recv();
+     *
+     * @param args
+     * @return pthread_exit
+     */
+    void* handleClients(void *args);
 
 }

@@ -18,7 +18,6 @@ namespace server {
         enderecoServidor.sin_port = htons(TCP_PORT); //porta
         enderecoServidor.sin_addr.s_addr= INADDR_ANY; //aceita conexao de qualquer origem
 
-        //associe o soqueteServidor ao endereço configurado em enderecoServidor
 
         ret = bind(socketTCP,(struct sockaddr*)&enderecoServidor,sizeof(enderecoServidor));
 
@@ -51,8 +50,8 @@ namespace server {
 
         bzero((char*)&enderecoBroadcast,sizeof(enderecoBroadcast));
         enderecoBroadcast.sin_family = AF_INET;
-        enderecoBroadcast.sin_addr.s_addr = htonl(INADDR_BROADCAST);// .255
-        enderecoBroadcast.sin_port = htons(BROADCAST_PORT);
+        enderecoBroadcast.sin_addr.s_addr = htonl(INADDR_BROADCAST);// 255.255.255.255
+        enderecoBroadcast.sin_port = htons(BROADCAST_PORT); // porta 5001
         //=========
 
 
@@ -106,33 +105,32 @@ namespace server {
         pthread_exit(NULL);
     }
 
-   void* accept_connections(void *args) {
+    void* accept_connections(void *args) {
+        int count = 0;
 
-        int connect =0;
-        int connectRet;
+        if (listen(socketTCP, CONNECTION_LIMIT) == -1) {
+            perror("ERRO AO ESCUTAR CONEXOES TCP");
+            return NULL;
+        }
 
-        listen(socketTCP,CONNECTION_LIMIT);
+        while (count < CONNECTION_LIMIT) {
+            int clientSocket = accept(socketTCP, NULL, NULL);
 
-        while (connect < CONNECTION_LIMIT) {
-
-            socketCients[connect]  = accept(socketTCP,NULL,NULL);
-
-            if (socketCients[connect] == -1) {
+            if (clientSocket == -1) {
                 perror("ERRO AO ACEITAR CONEXAO");
+                continue;
             }
 
-            connect++;
+            socketCients[count] = clientSocket;
+            count++;
 
             pthread_mutex_lock(&lock);
             connectedClients++;
             pthread_mutex_unlock(&lock);
-
         }
 
-
-        pthread_exit(NULL);
-   }
-
+        return NULL;
+    }
 
     bool initConnectionThreads() {
 
@@ -145,6 +143,8 @@ namespace server {
         return true;
     }
 
-
+    void* handleClients(void *args) {
+        //implementar
+    }
 
 }
