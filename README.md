@@ -42,7 +42,7 @@ Referências: [build-essential no Ubuntu](https://packages.ubuntu.com/build-esse
 ## Abrir e compilar no CLion
 
 1. No CLion, selecione **File > Open** e abra a pasta `project` do repositório. Como ela contém `CMakeLists.txt`, o carregamento do projeto CMake normalmente é automático.
-2. Se aparecer um aviso de que o projeto CMake não está carregado, use a opção de selecionar o arquivo de configuração, caso oferecida pelo aviso, e escolha `project/CMakeLists.txt`. O texto do botão pode variar conforme a versão; não é necessário que exista um botão chamado **Fix**.
+2. Se aparecer um aviso de que o projeto CMake não está carregado, use a opção de selecionar o arquivo de configuração, caso oferecida pelo aviso, e escolha `project/CMakeLists.txt`.
 3. Como alternativa documentada, clique com o botão direito em `CMakeLists.txt` na árvore do projeto e selecione **Load CMake Project**. Também é possível abrir diretamente esse arquivo por **File > Open** e escolher **Open as Project**.
 4. Aguarde a configuração do CMake. Por padrão, os arquivos de compilação ficam em uma pasta como `project/cmake-build-debug`, criada conforme o perfil ativo. Confira ou altere o caminho em **Settings > Build, Execution, Deployment > CMake > Build directory**.
 5. Selecione `tetris_server` ou `tetris_client` nas configurações de execução e use **Build**, **Run** ou **Debug**. Inicie o servidor antes dos clientes.

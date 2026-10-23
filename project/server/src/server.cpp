@@ -1,9 +1,8 @@
 #include "server.hpp"
+#include <cerrno>
 
 
 namespace server {
-
-
     bool configure_tcp_socket() {
 
         int ret= -1;
@@ -179,23 +178,60 @@ namespace server {
 
 
     void* handleClients(void *args) {
+
         SocketParam_t *param = (SocketParam_t *)args;
 
         int clientSocket = param->socket;
 
         free(param);
 
-        char buffer[1024];
+        Message message;
+
+        char *data = (char*) &message;
+
+        size_t receivedTotal = 0;
 
         while (true) {
-            ssize_t received = recv(clientSocket, buffer, sizeof(buffer), 0);
+            ssize_t received = recv(clientSocket, data + receivedTotal,
+                                    sizeof(message) - receivedTotal, 0);
 
             if (received > 0) {
-                buffer[received] = '\0';
-                // PROCESSAR OS DADOS VINDOS DO BUFFER AQUI
-                printf("\nMENSAGEM DO CLIENTE: %s\n",buffer); //debug por enquanto
+                receivedTotal += static_cast<size_t>(received);
+
+                // Processa somente depois de receber todos os bytes da mensagem.
+                if (receivedTotal < sizeof(message)) {
+                    continue;
+                }
+
+                if (message.option == MSG_DISCONNECT) {
+                    printf("\nCliente solicitou desconexao\n");
+                    break;
+                }
+
+                switch (message.option) {
+                    case MSG_CHAT:
+                        // Limita a leitura mesmo se o payload vier sem terminador.
+                        printf("\nMENSAGEM DO CLIENTE: %s\n",message.payload);
+                        break;
+                    case MSG_JOIN:
+                    case MSG_MOVE:
+                    case MSG_GAME_STATE:
+                        printf("\nMensagem tipo %d recebida; processamento ainda nao implementado\n",
+                               static_cast<int>(message.option));
+                        break;
+                    default:
+                        fprintf(stderr, "TIPO DE MENSAGEM DESCONHECIDO\n");
+                        break;
+                }
+
+                receivedTotal = 0;
+                message = Message{};
 
             } else if (received == 0) {
+                if (receivedTotal != 0) {
+                    fprintf(stderr, "CONEXAO ENCERRADA COM MENSAGEM INCOMPLETA (%zu/%zu bytes)\n",
+                            receivedTotal, sizeof(message));
+                }
                 printf("\nCliente encerrou a conexao\n");
                 break;
             } else {
