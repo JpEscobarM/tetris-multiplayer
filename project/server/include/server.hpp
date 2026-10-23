@@ -6,6 +6,7 @@
 #include <string>
 #include <strings.h>
 #include <unistd.h>
+#include "types.h"
 #include <iostream>
 #include <cstring>
 #include <pthread.h>
@@ -151,15 +152,17 @@ namespace server {
     bool initConnectionThreads();
 
     /**
-     * @brief Recebe dados do socket TCP de um cliente até o encerramento ou erro da conexão.
+     * @brief Recebe mensagens Message completas do socket TCP de um cliente.
      * @param args Ponteiro para um SocketParam_t alocado com malloc().
      * @return NULL após atualizar o estado do cliente e fechar seu socket.
      * @details Copia o descritor recebido e libera a estrutura de argumento.
      *          Ao terminar, marca a posição correspondente em socketCients com -1,
      *          decrementa connectedClients e fecha o socket.
-     * @note Atualmente imprime os dados recebidos para depuração.
-     * @note Cada recv() retorna um trecho do fluxo TCP, não necessariamente
-     *       uma mensagem completa.
+     * @note Acumula leituras parciais até sizeof(Message), imprime MSG_CHAT
+     *       e encerra o atendimento ao receber MSG_DISCONNECT.
+     * @note Os demais tipos conhecidos ainda não possuem lógica de jogo.
+     * @note O envio da struct bruta exige layout e ordem de bytes compatíveis
+     *       entre cliente e servidor.
      */
     void* handleClients(void *args);
 

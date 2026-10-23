@@ -157,75 +157,70 @@ namespace client
 
     void* producer_client_event_pool(void *args)
     {
-        Event event;
-
-        while (1)
+        while (true)
         {
-            printf("\nDigite a mensagem para o servidor: \n");
+            Message event;
+            event.option = MSG_CHAT;
 
-            if (fgets(event.buffer,sizeof(event.buffer),stdin) == NULL)
+            printf("\nDigite a mensagem para o servidor:\n");
+
+            if (fgets(event.payload, sizeof(event.payload), stdin) == NULL)
             {
-                perror("\nERRO AO LER ENTRADA DE DADOS NO PRODUCER\n");
-                pthread_exit(NULL);
+                if (ferror(stdin)) {
+                    perror("ERRO AO LER ENTRADA");
+                }
+
+                return NULL;
             }
 
-            event.buffer[strcspn(event.buffer,"\n")] = '\0';
+            event.payload[strcspn(event.payload, "\n")] = '\0';
 
             pthread_mutex_lock(&event_lock);
 
-            while (eventPoolSize == EVENT_POOL_BUFFER_SIZE)
-            {
-                pthread_cond_wait(&hasSpace,&event_lock);
+            while (eventPoolSize == EVENT_POOL_BUFFER_SIZE) {
+                pthread_cond_wait(&hasSpace, &event_lock);
             }
 
-            eventPool[writeIndex]=event;
-            writeIndex = (writeIndex +1) % EVENT_POOL_BUFFER_SIZE; //circular
+            eventPool[writeIndex] = event;
+            writeIndex = (writeIndex + 1) % EVENT_POOL_BUFFER_SIZE;
             eventPoolSize++;
 
             pthread_mutex_unlock(&event_lock);
-
             pthread_cond_signal(&hasEvent);
-
-
         }
-
-        pthread_exit(NULL);
     }
 
     void* consumer_client_event_pool(void *args)
     {
-
-        while (1)
+        while (true)
         {
-
             pthread_mutex_lock(&event_lock);
 
-            while (eventPoolSize == 0)
-            {
-                pthread_cond_wait(&hasEvent,&event_lock);
-
+            while (eventPoolSize == 0) {
+                pthread_cond_wait(&hasEvent, &event_lock);
             }
 
-            Event event = eventPool[readIndex];
-            readIndex = (readIndex+1) %EVENT_POOL_BUFFER_SIZE;
+            Message event = eventPool[readIndex];
+            readIndex = (readIndex + 1) % EVENT_POOL_BUFFER_SIZE;
             eventPoolSize--;
 
             pthread_mutex_unlock(&event_lock);
             pthread_cond_signal(&hasSpace);
 
-            if (socketTCP == -1)
-            {
-                perror("\nSOCKET INDISPONIVEL, NAO É POSSIVEL ENVIAR DADOS AO SERVIDOR\n");
-                continue;
+            if (socketTCP == -1) {
+                fprintf(stderr, "SOCKET TCP INDISPONIVEL\n");
+                return NULL;
             }
 
-            size_t total = strlen(event.buffer) + 1;
+            char *data = (char *) &event;
+            size_t total = sizeof(event);
             size_t sent = 0;
 
-            while (sent < total) {
+            while (sent < total)
+            {
                 ssize_t result = send(
                     socketTCP,
-                    event.buffer + sent,
+                    data + sent, //data  aponta pro inicio do byte da struct, sent move o ponteiro dos bytes ate o total
                     total - sent,
                     MSG_NOSIGNAL
                 );
@@ -233,7 +228,7 @@ namespace client
                 if (result == -1) {
                     if (errno == EINTR) continue;
 
-                    perror("ERRO AO ENVIAR EVENTO");
+                    perror("ERRO AO ENVIAR MENSAGEM");
                     return NULL;
                 }
 
@@ -242,12 +237,11 @@ namespace client
                     return NULL;
                 }
 
-                sent += (size_t)result;
+                sent += static_cast<size_t>(result);
             }
-
         }
-        pthread_exit(NULL);
     }
+
     void init_event_pool() {
         int error;
 

@@ -8,6 +8,7 @@
 #include <unistd.h>
 #include <iostream>
 #include <pthread.h>
+#include "types.h"
 
 namespace client
 {
@@ -75,7 +76,7 @@ namespace client
      * @brief Armazenamento da fila circular de eventos pendentes de envio.
      * @note O acesso deve ser protegido por event_lock.
      */
-    inline Event eventPool[EVENT_POOL_BUFFER_SIZE];
+    inline Message eventPool[EVENT_POOL_BUFFER_SIZE];
 
     /**
      * @brief Índices de escrita e leitura da fila circular.
