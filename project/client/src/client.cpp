@@ -100,7 +100,7 @@ namespace client
 
         while (1) {
 
-            recvRet= recvfrom(socketUDP,message,1024,0,(struct sockaddr*)&enderecoServer,&addressSize);
+            recvRet= recvfrom(socketUDP,message,sizeof(message) - 1,0,(struct sockaddr*)&enderecoServer,&addressSize);
 
             if (recvRet != -1) break;
 

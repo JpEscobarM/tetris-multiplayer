@@ -1,17 +1,17 @@
-//
-// Created by jmartins on 23/10/2026.
-//
-
 #ifndef TETRIS_TYPES_H
 #define TETRIS_TYPES_H
 
+#include <cstdint>
 
-enum MessageType {
-    MSG_JOIN = 1,
-    MSG_MOVE = 2,
-    MSG_GAME_STATE = 3,
-    MSG_CHAT = 4,
-    MSG_DISCONNECT = 5
+enum MessageType : int32_t {
+    MSG_JOIN       = 1,  // cliente -> servidor: "estou pronto"
+    MSG_GAME_STATE = 3,  // cliente -> servidor -> outro cliente: foto do tabuleiro + pontos
+    MSG_CHAT       = 4,  // so para depuracao
+    MSG_DISCONNECT = 5,  // cliente -> servidor
+    MSG_START      = 6,  // servidor -> clientes: semente + id do jogador
+    MSG_ATTACK     = 7,  // cliente -> servidor -> outro cliente: linhas de lixo
+    MSG_GAME_OVER  = 8,  // cliente -> servidor: "perdi"
+    MSG_GAME_END   = 9   // servidor -> clientes: quem venceu
 };
 
 #define PAYLOAD_SIZE 256
@@ -21,4 +21,9 @@ typedef struct {
     char payload[PAYLOAD_SIZE];
 } Message;
 
-#endif //TETRIS_TYPES_H
+// Conteudo (payload) de cada tipo. Sempre copiar com memcpy.
+typedef struct { int32_t seed; int32_t playerId; } StartPayload;
+typedef struct { int32_t lines; }                  AttackPayload;
+typedef struct { int32_t winnerId; }               EndPayload;
+
+#endif

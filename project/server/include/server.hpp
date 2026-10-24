@@ -22,6 +22,7 @@ namespace server {
          * @brief Descritor do socket TCP retornado por accept().
          */
         int socket;
+        int id;   // 0 ou 1: qual jogador e este
 
     }SocketParam_t;
 
@@ -59,6 +60,12 @@ namespace server {
      * @note As leituras e alterações devem ser protegidas por lock.
      */
     inline int connectedClients = 0;
+
+    /** @brief Quem ja mandou MSG_JOIN. Protegido por lock. */
+    inline bool joined[2] = {false, false};
+
+    /** @brief true enquanto a partida esta em andamento. Protegido por lock. */
+    inline bool gameRunning = false;
 
     /**
      * @brief Descritor do socket UDP usado para enviar anúncios em broadcast.

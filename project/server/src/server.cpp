@@ -1,5 +1,7 @@
 #include "server.hpp"
 #include <cerrno>
+#include <random>
+
 
 
 namespace server {
@@ -8,6 +10,15 @@ namespace server {
         int ret= -1;
 
         socketTCP = socket(AF_INET,SOCK_STREAM,0);
+
+        if (socketTCP == -1) {
+            perror("ERRO AO CRIAR SOCKET TCP");
+            return false;
+        }
+
+        // Permite reiniciar o servidor logo apos encerrar (evita "Address already in use").
+        int reutilizarEndereco = 1;
+        setsockopt(socketTCP, SOL_SOCKET, SO_REUSEADDR, &reutilizarEndereco, sizeof(reutilizarEndereco));
 
         bzero((char*)&enderecoServidor,sizeof(enderecoServidor));
 
@@ -51,9 +62,10 @@ namespace server {
         enderecoBroadcast.sin_port = htons(BROADCAST_PORT); // porta 5001
         //=========
 
-
         return true;
     }
+
+
 
     bool init_server() {
 
@@ -74,13 +86,15 @@ namespace server {
         return true;
     }
 
-   void* connection_announcement(void *args) {
+
+
+    void* connection_announcement(void *args) {
 
         std::string message = "TETRIS|" + std::to_string(server::TCP_PORT);
 
         int ret=0;
 
-        int check;
+        int check = 0;
 
         while ( check < CONNECTION_LIMIT) {
 
@@ -101,6 +115,8 @@ namespace server {
         }
         pthread_exit(NULL);
     }
+
+
 
     void* accept_connections(void *args) {
         int count = 0;
@@ -127,6 +143,7 @@ namespace server {
             }
 
             param->socket = clientSocket;
+            param->id = count;
 
             socketCients[count] = clientSocket;
 
@@ -157,6 +174,7 @@ namespace server {
     }
 
 
+
     bool initConnectionThreads() {
 
 
@@ -177,11 +195,36 @@ namespace server {
 
 
 
+    // Envia uma Message para o jogador 'id'. EXIGE que 'lock' ja esteja travado:
+    // assim o socket nao pode ser fechado por outra thread no meio do envio,
+    // e dois envios para o mesmo socket nunca se misturam.
+    static void send_to_locked(int id, MessageType type, const void *data, size_t len) {
+        int sock = socketCients[id];
+        if (sock == -1) return;               // jogador ja saiu
+
+        Message m{};
+        m.option = type;
+        if (data != nullptr && len <= PAYLOAD_SIZE) memcpy(m.payload, data, len);
+
+        const char *p = (const char *)&m;
+        size_t sent = 0;
+        while (sent < sizeof(m)) {
+            ssize_t r = send(sock, p + sent, sizeof(m) - sent, MSG_NOSIGNAL);
+            if (r < 0 && errno == EINTR) continue;
+            if (r <= 0) { perror("ERRO AO ENVIAR AO CLIENTE"); return; }
+            sent += (size_t)r;
+        }
+    }
+
+    
+
     void* handleClients(void *args) {
 
         SocketParam_t *param = (SocketParam_t *)args;
 
         int clientSocket = param->socket;
+        const int myId = param->id;
+        const int otherId = 1 - myId;
 
         free(param);
 
@@ -208,19 +251,55 @@ namespace server {
                     break;
                 }
 
+                // Garante terminador mesmo se o cliente mandar 256 bytes "cheios".
+                message.payload[PAYLOAD_SIZE - 1] = '\0';
+
                 switch (message.option) {
                     case MSG_CHAT:
-                        // Limita a leitura mesmo se o payload vier sem terminador.
-                        printf("\nMENSAGEM DO CLIENTE: %s\n",message.payload);
+                        printf("\nMENSAGEM DO CLIENTE %d: %s\n", myId, message.payload);
                         break;
-                    case MSG_JOIN:
-                    case MSG_MOVE:
+
+                    case MSG_JOIN: {
+                        pthread_mutex_lock(&lock);
+                        joined[myId] = true;
+                        if (joined[0] && joined[1] && !gameRunning) {
+                            std::random_device rd;
+                            int32_t seed = (int32_t)(rd() & 0x7fffffff);
+                            gameRunning = true;
+                            for (int i = 0; i < 2; i++) {
+                                StartPayload sp{seed, i};
+                                send_to_locked(i, MSG_START, &sp, sizeof(sp));
+                            }
+                            printf("\nPARTIDA INICIADA, seed=%d\n", seed);
+                        }
+                        pthread_mutex_unlock(&lock);
+                        break;
+                    }
+
+                    case MSG_ATTACK:
                     case MSG_GAME_STATE:
-                        printf("\nMensagem tipo %d recebida; processamento ainda nao implementado\n",
-                               static_cast<int>(message.option));
+                        // O servidor so repassa para o adversario.
+                        pthread_mutex_lock(&lock);
+                        if (gameRunning)
+                            send_to_locked(otherId, message.option, message.payload, PAYLOAD_SIZE);
+                        pthread_mutex_unlock(&lock);
                         break;
+
+                    case MSG_GAME_OVER: {
+                        pthread_mutex_lock(&lock);
+                        if (gameRunning) {
+                            gameRunning = false;
+                            EndPayload ep{otherId};
+                            for (int i = 0; i < 2; i++)
+                                send_to_locked(i, MSG_GAME_END, &ep, sizeof(ep));
+                            printf("\nFIM DE JOGO: jogador %d venceu\n", otherId);
+                        }
+                        pthread_mutex_unlock(&lock);
+                        break;
+                    }
+
                     default:
-                        fprintf(stderr, "TIPO DE MENSAGEM DESCONHECIDO\n");
+                        fprintf(stderr, "TIPO DE MENSAGEM DESCONHECIDO: %d\n", (int)message.option);
                         break;
                 }
 
