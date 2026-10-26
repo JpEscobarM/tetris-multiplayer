@@ -3,7 +3,6 @@
 #include <random>
 
 
-
 namespace server {
     bool configure_tcp_socket() {
 
@@ -62,10 +61,9 @@ namespace server {
         enderecoBroadcast.sin_port = htons(BROADCAST_PORT); // porta 5001
         //=========
 
+
         return true;
     }
-
-
 
     bool init_server() {
 
@@ -78,19 +76,17 @@ namespace server {
             return false;
         }
 
-            std::cout << "\nServer started";
-            std::cout << "\nTCP and UDP sockets configured";
+            std::cout << "\n--- Servidor Iniciado ---";
+            std::cout << "\n-- Sockets TCP e UDP configurados --";
 
             initConnectionThreads();
 
         return true;
     }
 
+   void* connection_announcement(void *args) {
 
-
-    void* connection_announcement(void *args) {
-
-        std::string message = "TETRIS|" + std::to_string(server::TCP_PORT);
+        std::string message = "- TETRIS|" + std::to_string(server::TCP_PORT);
 
         int ret=0;
 
@@ -102,8 +98,8 @@ namespace server {
             check = connectedClients;
             pthread_mutex_unlock(&lock);
 
-            printf("\n\nWaiting for connection...");
-            printf("\nClients connected: %d",check);
+            printf("\n\nEsperando conexao...");
+            printf("\nClientes conectados: %d",check);
 
             ret = sendto(socketUDP,message.data(),message.size(),0,(sockaddr*)&enderecoBroadcast,sizeof(enderecoBroadcast));
 
@@ -115,8 +111,6 @@ namespace server {
         }
         pthread_exit(NULL);
     }
-
-
 
     void* accept_connections(void *args) {
         int count = 0;
@@ -174,7 +168,6 @@ namespace server {
     }
 
 
-
     bool initConnectionThreads() {
 
 
@@ -216,8 +209,6 @@ namespace server {
         }
     }
 
-    
-
     void* handleClients(void *args) {
 
         SocketParam_t *param = (SocketParam_t *)args;
@@ -247,7 +238,7 @@ namespace server {
                 }
 
                 if (message.option == MSG_DISCONNECT) {
-                    printf("\nCliente solicitou desconexao\n");
+                    printf("\nCliente %d solicitou desconexao\n", myId);
                     break;
                 }
 
@@ -311,7 +302,7 @@ namespace server {
                     fprintf(stderr, "CONEXAO ENCERRADA COM MENSAGEM INCOMPLETA (%zu/%zu bytes)\n",
                             receivedTotal, sizeof(message));
                 }
-                printf("\nCliente encerrou a conexao\n");
+                printf("\nCliente %d encerrou a conexao\n", myId);
                 break;
             } else {
                 if (errno == EINTR) {

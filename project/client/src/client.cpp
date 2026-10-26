@@ -147,7 +147,7 @@ namespace client
         }
 
         std::cout << "\n";
-        std::cout << "\nUDP socket configured\n";
+        std::cout << "\nSocket UDP configurado\n";
 
         initConnectionThreads();
 
