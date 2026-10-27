@@ -1,14 +1,10 @@
 #include "server.hpp"
-#include <cerrno>
-#include <random>
-
 
 namespace server {
+
     bool configure_tcp_socket() {
 
-        int ret= -1;
-
-        socketTCP = socket(AF_INET,SOCK_STREAM,0);
+        socketTCP = socket(AF_INET, SOCK_STREAM, 0);
 
         if (socketTCP == -1) {
             perror("ERRO AO CRIAR SOCKET TCP");
@@ -19,31 +15,23 @@ namespace server {
         int reutilizarEndereco = 1;
         setsockopt(socketTCP, SOL_SOCKET, SO_REUSEADDR, &reutilizarEndereco, sizeof(reutilizarEndereco));
 
-        bzero((char*)&enderecoServidor,sizeof(enderecoServidor));
+        memset(&enderecoServidor, 0, sizeof(enderecoServidor));
+        enderecoServidor.sin_family = AF_INET;                 // ipv4
+        enderecoServidor.sin_port = htons(TCP_PORT);           // porta
+        enderecoServidor.sin_addr.s_addr = htonl(INADDR_ANY);  // aceita conexao de qualquer origem
 
-        enderecoServidor.sin_family = AF_INET; //ipv4
-        enderecoServidor.sin_port = htons(TCP_PORT); //porta
-        enderecoServidor.sin_addr.s_addr= INADDR_ANY; //aceita conexao de qualquer origem
-
-
-        ret = bind(socketTCP,(struct sockaddr*)&enderecoServidor,sizeof(enderecoServidor));
-
-        if (ret == -1) {
-            perror("ERRO AO REALIZAR BIND NA PORTA 5002");
+        if (bind(socketTCP, (struct sockaddr*)&enderecoServidor, sizeof(enderecoServidor)) == -1) {
+            perror("ERRO AO REALIZAR BIND NA PORTA TCP");
             return false;
         }
 
-
         return true;
     }
-
-
 
     bool configure_udp_socket() {
 
         int habilitarBroadcast = 1;
 
-        //CONFIGURACAO INICIAL DO SOCKET UDP
         socketUDP = socket(AF_INET, SOCK_DGRAM, 0);
 
         if (socketUDP == -1) {
@@ -51,151 +39,147 @@ namespace server {
             return false;
         }
 
-        //HABILITANDO PARA BROADCAST
+        setsockopt(socketUDP, SOL_SOCKET, SO_BROADCAST, &habilitarBroadcast, sizeof(habilitarBroadcast));
 
-        setsockopt(socketUDP,SOL_SOCKET,SO_BROADCAST,&habilitarBroadcast,sizeof(habilitarBroadcast));
-
-        bzero((char*)&enderecoBroadcast,sizeof(enderecoBroadcast));
+        memset(&enderecoBroadcast, 0, sizeof(enderecoBroadcast));
         enderecoBroadcast.sin_family = AF_INET;
-        enderecoBroadcast.sin_addr.s_addr = htonl(INADDR_BROADCAST);// 255.255.255.255
-        enderecoBroadcast.sin_port = htons(BROADCAST_PORT); // porta 5001
-        //=========
-
+        enderecoBroadcast.sin_addr.s_addr = htonl(INADDR_BROADCAST);   // 255.255.255.255
+        enderecoBroadcast.sin_port = htons(BROADCAST_PORT);            // porta 5001
 
         return true;
     }
 
     bool init_server() {
 
-        bool udpCnfigs = configure_udp_socket();
-        bool tcpConfigs = configure_tcp_socket();
-
-
-        if (udpCnfigs == false || tcpConfigs == false) {
-
+        if (!configure_udp_socket() || !configure_tcp_socket()) {
             return false;
         }
 
-            std::cout << "\n--- Servidor Iniciado ---";
-            std::cout << "\n-- Sockets TCP e UDP configurados --";
+        printf("\n--- Servidor iniciado ---\n");
+        printf("Sockets TCP (porta %d) e UDP (broadcast na porta %d) configurados\n", TCP_PORT, BROADCAST_PORT);
 
-            initConnectionThreads();
-
-        return true;
+        return initConnectionThreads();
     }
 
-   void* connection_announcement(void *args) {
+    // Anuncia o servidor em broadcast enquanto ainda houver vaga (ex.: jogador 2 ainda nao chegou).
+    void* connection_announcement(void *args) {
+        (void)args;
 
-        std::string message = "- TETRIS|" + std::to_string(server::TCP_PORT);
+        std::string message = "- TETRIS|" + std::to_string(TCP_PORT);
+        int ultimo = -1;
 
-        int ret=0;
-
-        int check = 0;
-
-        while ( check < CONNECTION_LIMIT) {
-
+        while (true) {
             pthread_mutex_lock(&lock);
-            check = connectedClients;
+            int conectados = connectedClients;
             pthread_mutex_unlock(&lock);
 
-            printf("\n\nEsperando conexao...");
-            printf("\nClientes conectados: %d",check);
+            if (conectados != ultimo) {      // so imprime quando muda (evita poluir o console)
+                printf("Jogadores conectados: %d/%d\n", conectados, CONNECTION_LIMIT);
+                ultimo = conectados;
+            }
 
-            ret = sendto(socketUDP,message.data(),message.size(),0,(sockaddr*)&enderecoBroadcast,sizeof(enderecoBroadcast));
-
-            if (ret == -1) {
-                perror("\nERRO AO ENVIAR ANUNCIO EM BROADCAST");
+            if (conectados < CONNECTION_LIMIT) {
+                ssize_t ret = sendto(socketUDP, message.data(), message.size(), 0,
+                                     (sockaddr*)&enderecoBroadcast, sizeof(enderecoBroadcast));
+                if (ret == -1) {
+                    perror("ERRO AO ENVIAR ANUNCIO EM BROADCAST");
+                }
             }
 
             sleep(TIME_TO_CHECK);
         }
-        pthread_exit(NULL);
+        return NULL;
     }
 
     void* accept_connections(void *args) {
-        int count = 0;
+        (void)args;
 
         if (listen(socketTCP, CONNECTION_LIMIT) == -1) {
             perror("ERRO AO ESCUTAR CONEXOES TCP");
             return NULL;
         }
 
-        while (count < CONNECTION_LIMIT) {
+        while (true) {
             int clientSocket = accept(socketTCP, NULL, NULL);
 
             if (clientSocket == -1) {
-                perror("ERRO AO ACEITAR CONEXAO");
+                if (errno != EINTR && errno != ECONNABORTED) {
+                    perror("ERRO AO ACEITAR CONEXAO");
+                    sleep(1);   // evita girar em falso se o erro persistir
+                }
                 continue;
             }
 
-            SocketParam_t *param =(SocketParam_t *)malloc(sizeof(SocketParam_t));
+            int nodelay = 1;
+            setsockopt(clientSocket, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay));
 
-            if (param == NULL) {
-                perror("ERRO AO ALOCAR PARAMETRO");
-                close(clientSocket);
-                continue;
-            }
-
-            param->socket = clientSocket;
-            param->id = count;
-
-            socketCients[count] = clientSocket;
-
-            int err_t = pthread_create(&handleClientsThreads[count],NULL,handleClients,param);
-
+            // Procura uma vaga livre (0 ou 1).
+            int slot = -1;
             pthread_mutex_lock(&lock);
-
-            if (err_t == 0) {
-                connectedClients++;
-            } else {
-                socketCients[count] = -1;
+            for (int i = 0; i < CONNECTION_LIMIT; i++) {
+                if (socketClients[i] == -1) { slot = i; break; }
             }
-
+            if (slot != -1) {
+                socketClients[slot] = clientSocket;
+                joined[slot] = false;
+                connectedClients++;
+            }
             pthread_mutex_unlock(&lock);
 
-            if (err_t != 0) {
-                fprintf(stderr, "ERRO AO CRIAR THREAD: %s\n",strerror(err_t));
-
-                free(param);
+            if (slot == -1) {
+                printf("Conexao recusada: servidor cheio\n");
                 close(clientSocket);
                 continue;
             }
 
-            count++;
-        }
+            SocketParam_t *param = (SocketParam_t *)malloc(sizeof(SocketParam_t));
+            pthread_t tid;
+            int err_t = (param == NULL) ? ENOMEM : 0;
 
+            if (param != NULL) {
+                param->socket = clientSocket;
+                param->id = slot;
+                err_t = pthread_create(&tid, NULL, handleClients, param);
+            }
+
+            if (err_t != 0) {
+                fprintf(stderr, "ERRO AO CRIAR THREAD: %s\n", strerror(err_t));
+                free(param);
+                pthread_mutex_lock(&lock);
+                socketClients[slot] = -1;
+                connectedClients--;
+                pthread_mutex_unlock(&lock);
+                close(clientSocket);
+                continue;
+            }
+
+            pthread_detach(tid);   // a thread se limpa sozinha quando o jogador sai
+            printf("Jogador %d conectou\n", slot);
+        }
         return NULL;
     }
 
-
     bool initConnectionThreads() {
 
+        pthread_create(&connectionThreads[0], NULL, connection_announcement, NULL);
+        pthread_create(&connectionThreads[1], NULL, accept_connections, NULL);
 
-        pthread_create(&connectionThreads[0],NULL,connection_announcement,NULL);// primeira thread responsavel por anunciar enquanto existirem conexoes vazias
-        pthread_create(&connectionThreads[1],NULL,accept_connections,NULL);
-
-
+        // O servidor fica de pe para sempre (varias partidas, jogadores entrando e saindo).
         pthread_join(connectionThreads[0], NULL);
         pthread_join(connectionThreads[1], NULL);
 
-        // Espera cada thread de atendimento terminar.
-        for (int i = 0; i < CONNECTION_LIMIT; i++) {
-            pthread_join(handleClientsThreads[i], NULL);
-        }
-
         return true;
     }
-
-
 
     // Envia uma Message para o jogador 'id'. EXIGE que 'lock' ja esteja travado:
     // assim o socket nao pode ser fechado por outra thread no meio do envio,
     // e dois envios para o mesmo socket nunca se misturam.
     static void send_to_locked(int id, MessageType type, const void *data, size_t len) {
-        int sock = socketCients[id];
+        int sock = socketClients[id];
         if (sock == -1) return;               // jogador ja saiu
 
-        Message m{};
+        Message m;
+        memset(&m, 0, sizeof(m));
         m.option = type;
         if (data != nullptr && len <= PAYLOAD_SIZE) memcpy(m.payload, data, len);
 
@@ -207,6 +191,18 @@ namespace server {
             if (r <= 0) { perror("ERRO AO ENVIAR AO CLIENTE"); return; }
             sent += (size_t)r;
         }
+    }
+
+    // Termina a partida e avisa os DOIS jogadores ao mesmo tempo. Exige 'lock' travado.
+    static void end_game_locked(int winnerId) {
+        gameRunning = false;
+        joined[0] = joined[1] = false;      // para jogar de novo, cada um manda MSG_JOIN outra vez
+        EndPayload ep;
+        ep.winnerId = winnerId;
+        for (int i = 0; i < CONNECTION_LIMIT; i++) {
+            send_to_locked(i, MSG_GAME_END, &ep, sizeof(ep));
+        }
+        printf("FIM DE JOGO: jogador %d venceu\n", winnerId);
     }
 
     void* handleClients(void *args) {
@@ -237,57 +233,74 @@ namespace server {
                     continue;
                 }
 
-                if (message.option == MSG_DISCONNECT) {
-                    printf("\nCliente %d solicitou desconexao\n", myId);
-                    break;
-                }
-
                 // Garante terminador mesmo se o cliente mandar 256 bytes "cheios".
                 message.payload[PAYLOAD_SIZE - 1] = '\0';
 
+                if (message.option == MSG_DISCONNECT) {
+                    printf("Jogador %d pediu para desconectar\n", myId);
+                    break;
+                }
+
                 switch (message.option) {
                     case MSG_CHAT:
-                        printf("\nMENSAGEM DO CLIENTE %d: %s\n", myId, message.payload);
+                        printf("MENSAGEM DO JOGADOR %d: %s\n", myId, message.payload);
                         break;
 
                     case MSG_JOIN: {
                         pthread_mutex_lock(&lock);
-                        joined[myId] = true;
-                        if (joined[0] && joined[1] && !gameRunning) {
-                            std::random_device rd;
-                            int32_t seed = (int32_t)(rd() & 0x7fffffff);
-                            gameRunning = true;
-                            for (int i = 0; i < 2; i++) {
-                                StartPayload sp{seed, i};
-                                send_to_locked(i, MSG_START, &sp, sizeof(sp));
+                        if (!gameRunning) {
+                            joined[myId] = true;
+                            printf("Jogador %d esta pronto\n", myId);
+                            if (joined[0] && joined[1]) {
+                                // (1) a semente: os dois jogadores recebem a MESMA, entao as pecas sao iguais
+                                int32_t seed = (int32_t)(rng() & 0x7fffffff);
+                                gameRunning = true;
+                                for (int i = 0; i < CONNECTION_LIMIT; i++) {
+                                    StartPayload sp;
+                                    sp.seed = seed;
+                                    sp.playerId = i;
+                                    send_to_locked(i, MSG_START, &sp, sizeof(sp));
+                                }
+                                printf("PARTIDA INICIADA: seed=%d\n", seed);
                             }
-                            printf("\nPARTIDA INICIADA, seed=%d\n", seed);
                         }
                         pthread_mutex_unlock(&lock);
                         break;
                     }
 
-                    case MSG_ATTACK:
-                    case MSG_GAME_STATE:
-                        // O servidor so repassa para o adversario.
-                        pthread_mutex_lock(&lock);
-                        if (gameRunning)
-                            send_to_locked(otherId, message.option, message.payload, PAYLOAD_SIZE);
-                        pthread_mutex_unlock(&lock);
-                        break;
-
-                    case MSG_GAME_OVER: {
+                    case MSG_ATTACK: {
+                        // (2) intermedia o ataque: valida, sorteia o buraco e entrega ao adversario
+                        AttackPayload ap;
+                        memcpy(&ap, message.payload, sizeof(ap));
+                        if (ap.lines < 1 || ap.lines > 4) {
+                            fprintf(stderr, "Ataque invalido ignorado (jogador %d: %d linhas)\n", myId, ap.lines);
+                            break;
+                        }
                         pthread_mutex_lock(&lock);
                         if (gameRunning) {
-                            gameRunning = false;
-                            EndPayload ep{otherId};
-                            for (int i = 0; i < 2; i++)
-                                send_to_locked(i, MSG_GAME_END, &ep, sizeof(ep));
-                            printf("\nFIM DE JOGO: jogador %d venceu\n", otherId);
+                            ap.holeCol = (int32_t)(rng() % BOARD_COLS);
+                            send_to_locked(otherId, MSG_ATTACK, &ap, sizeof(ap));
+                            printf("ATAQUE: jogador %d -> jogador %d, %d linha(s), buraco na coluna %d\n",
+                                   myId, otherId, ap.lines, ap.holeCol);
                         }
                         pthread_mutex_unlock(&lock);
                         break;
                     }
+
+                    case MSG_GAME_STATE:
+                        // So repassa a "foto" do tabuleiro para o adversario desenhar.
+                        pthread_mutex_lock(&lock);
+                        if (gameRunning)
+                            send_to_locked(otherId, MSG_GAME_STATE, message.payload, PAYLOAD_SIZE);
+                        pthread_mutex_unlock(&lock);
+                        break;
+
+                    case MSG_GAME_OVER:
+                        // (3) quem perdeu avisa; o servidor encerra para os dois ao mesmo tempo
+                        pthread_mutex_lock(&lock);
+                        if (gameRunning) end_game_locked(otherId);
+                        pthread_mutex_unlock(&lock);
+                        break;
 
                     default:
                         fprintf(stderr, "TIPO DE MENSAGEM DESCONHECIDO: %d\n", (int)message.option);
@@ -295,34 +308,34 @@ namespace server {
                 }
 
                 receivedTotal = 0;
-                message = Message{};
+                memset(&message, 0, sizeof(message));
 
             } else if (received == 0) {
                 if (receivedTotal != 0) {
                     fprintf(stderr, "CONEXAO ENCERRADA COM MENSAGEM INCOMPLETA (%zu/%zu bytes)\n",
                             receivedTotal, sizeof(message));
                 }
-                printf("\nCliente %d encerrou a conexao\n", myId);
+                printf("Jogador %d encerrou a conexao\n", myId);
                 break;
             } else {
                 if (errno == EINTR) {
                     continue; // Interrompido por um sinal; tenta novamente.
                 }
 
-                perror("\nERRO AO RECEBER DADOS DO CLIENTE");
+                perror("ERRO AO RECEBER DADOS DO CLIENTE");
                 break;
             }
         }
 
         pthread_mutex_lock(&lock);
 
-        for (int i = 0; i < CONNECTION_LIMIT; i++) {
-            if (socketCients[i] == clientSocket) {
-                socketCients[i] = -1;
-                break;
-            }
+        // Se o jogador saiu NO MEIO da partida, o adversario vence.
+        if (gameRunning) {
+            end_game_locked(otherId);
         }
 
+        joined[myId] = false;
+        socketClients[myId] = -1;
         connectedClients--;
 
         pthread_mutex_unlock(&lock);
@@ -330,7 +343,5 @@ namespace server {
         close(clientSocket);
         return NULL;
     }
-
-
 
 }
